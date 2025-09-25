@@ -1,0 +1,224 @@
+// This is your Prisma schema file
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User roles enum
+enum UserRole {
+  SMB_OWNER      // Direct SMB user
+  ADVISOR        // Independent advisor managing multiple SMBs
+  ADMIN          // Platform admin
+}
+
+// Subscription tiers
+enum SubscriptionTier {
+  FREE_TRIAL
+  SMB_BASIC      // $49/month
+  SMB_PRO        // $99/month
+  ADVISOR_BASIC  // $199/month
+  ADVISOR_PRO    // $299/month
+}
+
+// AI Module types
+enum ModuleType {
+  MARKETING
+  OPERATIONS
+  CUSTOMER_SUPPORT
+  COMPLIANCE
+}
+
+// User model
+model User {
+  id               String           @id @default(cuid())
+  email            String           @unique
+  password         String
+  firstName        String
+  lastName         String
+  role             UserRole
+  emailVerified    Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  lastLoginAt      DateTime?
+  
+  // Relations
+  ownedBusinesses  Business[]       @relation("BusinessOwner")
+  advisorProfile   AdvisorProfile?
+  sessions         Session[]
+  activities       ActivityLog[]
+}
+
+// Business/SMB model
+model Business {
+  id               String           @id @default(cuid())
+  name             String
+  industry         String?
+  website          String?
+  address          String?
+  phone            String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  // Relations
+  ownerId          String
+  owner            User             @relation("BusinessOwner", fields: [ownerId], references: [id])
+  advisorId        String?
+  advisor          AdvisorProfile?  @relation(fields: [advisorId], references: [id])
+  subscription     Subscription?
+  moduleUsage      ModuleUsage[]
+  aiGenerations    AIGeneration[]
+  integrations     Integration[]
+  templates        Template[]
+  activities       ActivityLog[]
+}
+
+// Advisor profile for users with ADVISOR role
+model AdvisorProfile {
+  id               String           @id @default(cuid())
+  userId           String           @unique
+  user             User             @relation(fields: [userId], references: [id])
+  companyName      String?
+  bio              String?
+  specialties      String[]
+  maxClients       Int              @default(10)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  // Relations
+  managedBusinesses Business[]
+}
+
+// Subscription model
+model Subscription {
+  id               String           @id @default(cuid())
+  businessId       String           @unique
+  business         Business         @relation(fields: [businessId], references: [id])
+  tier             SubscriptionTier
+  stripeCustomerId String?
+  stripeSubId      String?
+  status           String           @default("active")
+  currentPeriodEnd DateTime?
+  cancelAt         DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  // Relations
+  invoices         Invoice[]
+}
+
+// Module usage tracking
+model ModuleUsage {
+  id               String           @id @default(cuid())
+  businessId       String
+  business         Business         @relation(fields: [businessId], references: [id])
+  moduleType       ModuleType
+  enabled          Boolean          @default(true)
+  monthlyUsage     Int              @default(0)
+  lastUsedAt       DateTime?
+  settings         Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  @@unique([businessId, moduleType])
+}
+
+// AI content generation records
+model AIGeneration {
+  id               String           @id @default(cuid())
+  businessId       String
+  business         Business         @relation(fields: [businessId], references: [id])
+  moduleType       ModuleType
+  prompt           String
+  response         String
+  metadata         Json?
+  tokens           Int?
+  cost             Float?
+  createdAt        DateTime         @default(now())
+  createdBy        String
+}
+
+// Templates for workflows
+model Template {
+  id               String           @id @default(cuid())
+  name             String
+  description      String?
+  moduleType       ModuleType
+  category         String
+  content          Json
+  isPublic         Boolean          @default(false)
+  businessId       String?
+  business         Business?        @relation(fields: [businessId], references: [id])
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  // Relations
+  uses             TemplateUse[]
+}
+
+// Template usage tracking
+model TemplateUse {
+  id               String           @id @default(cuid())
+  templateId       String
+  template         Template         @relation(fields: [templateId], references: [id])
+  businessId       String
+  output           Json?
+  createdAt        DateTime         @default(now())
+}
+
+// Third-party integrations
+model Integration {
+  id               String           @id @default(cuid())
+  businessId       String
+  business         Business         @relation(fields: [businessId], references: [id])
+  type             String           // gmail, outlook, gcal, quickbooks
+  enabled          Boolean          @default(true)
+  credentials      Json             // Encrypted
+  settings         Json?
+  lastSyncAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  @@unique([businessId, type])
+}
+
+// User sessions
+model Session {
+  id               String           @id @default(cuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id])
+  token            String           @unique
+  ipAddress        String?
+  userAgent        String?
+  expiresAt        DateTime
+  createdAt        DateTime         @default(now())
+}
+
+// Activity logging
+model ActivityLog {
+  id               String           @id @default(cuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id])
+  businessId       String?
+  business         Business?        @relation(fields: [businessId], references: [id])
+  action           String
+  details          Json?
+  ipAddress        String?
+  createdAt        DateTime         @default(now())
+}
+
+// Invoices
+model Invoice {
+  id               String           @id @default(cuid())
+  subscriptionId   String
+  subscription     Subscription     @relation(fields: [subscriptionId], references: [id])
+  stripeInvoiceId  String?
+  amount           Float
+  status           String
+  paidAt           DateTime?
+  dueDate          DateTime
+  createdAt        DateTime         @default(now())
+}
